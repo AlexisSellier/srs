@@ -1617,8 +1617,7 @@ void SrsSource::destroy_forwarders()
     std::vector<SrsForwarder*>::iterator it;
     for (it = forwarders.begin(); it != forwarders.end(); ++it) {
         SrsForwarder* forwarder = *it;
-        forwarder->on_unpublish();
-        srs_freep(forwarder);
+	delete forwarder;
     }
     forwarders.clear();
 }
