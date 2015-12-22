@@ -354,11 +354,11 @@ END
 #####################################################################################
 # build tools or compiler args.
 # enable gdb debug
-GDBDebug=" -g -O0"
+GDBDebug=" -std=c++0x -g -O0"
 # the warning level.
-WarnLevel=" -Wall"
+WarnLevel=" -W -Wall -Wextra -Wno-literal-suffix"
 # the compile standard.
-CppStd="-ansi"
+CppStd=" -ansi"
 # for library compile
 LibraryCompile=" -fPIC"
 # performance of gprof

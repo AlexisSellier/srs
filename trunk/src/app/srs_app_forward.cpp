@@ -21,64 +21,57 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#include <srs_app_forward.hpp>
-
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-using namespace std;
-
-#include <srs_app_source.hpp>
-#include <srs_app_st_socket.hpp>
-#include <srs_kernel_error.hpp>
-#include <srs_kernel_log.hpp>
-#include <srs_app_config.hpp>
-#include <srs_app_pithy_print.hpp>
-#include <srs_protocol_rtmp.hpp>
-#include <srs_protocol_utility.hpp>
-#include <srs_app_kbps.hpp>
-#include <srs_protocol_msg_array.hpp>
-#include <srs_app_utility.hpp>
-#include <srs_protocol_amf0.hpp>
-#include <srs_kernel_codec.hpp>
+#include "srs_app_forward.hpp"
+#include "srs_app_source.hpp"
+#include "srs_app_st_socket.hpp"
+#include "srs_kernel_error.hpp"
+#include "srs_kernel_log.hpp"
+#include "srs_app_config.hpp"
+#include "srs_app_pithy_print.hpp"
+#include "srs_protocol_rtmp.hpp"
+#include "srs_protocol_utility.hpp"
+#include "srs_app_kbps.hpp"
+#include "srs_protocol_msg_array.hpp"
+#include "srs_app_utility.hpp"
+#include "srs_protocol_amf0.hpp"
+#include "srs_kernel_codec.hpp"
 
 // when error, forwarder sleep for a while and retry.
-#define SRS_FORWARDER_SLEEP_US (int64_t)(3*1000*1000LL)
+
 
 SrsForwarder::SrsForwarder(SrsSource* _source)
 {
     source = _source;
     
-    _req = NULL;
+    _req = nullptr;
     io = NULL;
     client = NULL;
     stfd = NULL;
     kbps = new SrsKbps();
     stream_id = 0;
-
     pthread = new SrsThread(this, SRS_FORWARDER_SLEEP_US, true);
     queue = new SrsMessageQueue();
-    jitter = new SrsRtmpJitter();
-    
+    jitter = new SrsRtmpJitter();    
     sh_video = sh_audio = NULL;
 }
 
 SrsForwarder::~SrsForwarder()
 {
     on_unpublish();
-    
-    srs_freep(pthread);
-    srs_freep(queue);
-    srs_freep(jitter);
-    srs_freep(kbps);
-    
-    srs_freep(sh_video);
-    srs_freep(sh_audio);
+    delete pthread;
+    delete queue;
+    delete jitter;
+    delete kbps;
+    delete sh_video;
+    delete sh_audio;
 }
 
-int SrsForwarder::initialize(SrsRequest* req, string ep_forward)
+int SrsForwarder::initialize(SrsRequest* req, std::string ep_forward)
 {
     int ret = ERROR_SUCCESS;
     
@@ -94,7 +87,7 @@ int SrsForwarder::initialize(SrsRequest* req, string ep_forward)
 
 void SrsForwarder::set_queue_size(double queue_size)
 {
-    queue->set_queue_size(queue_size);
+    this->queue->set_queue_size(queue_size);
 }
 
 int SrsForwarder::on_publish()
@@ -147,12 +140,10 @@ int SrsForwarder::on_publish()
 
 void SrsForwarder::on_unpublish()
 {
-    pthread->stop();
-    
-    close_underlayer_socket();
-    
-    srs_freep(client);
-    srs_freep(io);
+    this->pthread->stop();
+    this->close_underlayer_socket();
+    delete client;
+    delete io;
     kbps->set_io(NULL, NULL);
 }
 
@@ -160,12 +151,12 @@ int SrsForwarder::on_meta_data(SrsSharedPtrMessage* metadata)
 {
     int ret = ERROR_SUCCESS;
     
-    if ((ret = jitter->correct(metadata, 0, 0, SrsRtmpJitterAlgorithmOFF)) != ERROR_SUCCESS) {
-        srs_freep(metadata);
+    if ((ret = this->jitter->correct(metadata, 0, 0, SrsRtmpJitterAlgorithmOFF)) != ERROR_SUCCESS) {
+        delete metadata;
         return ret;
     }
     
-    if ((ret = queue->enqueue(metadata)) != ERROR_SUCCESS) {
+    if ((ret = this->queue->enqueue(metadata)) != ERROR_SUCCESS) {
         return ret;
     }
     
@@ -176,17 +167,17 @@ int SrsForwarder::on_audio(SrsSharedPtrMessage* msg)
 {
     int ret = ERROR_SUCCESS;
     
-    if ((ret = jitter->correct(msg, 0, 0, SrsRtmpJitterAlgorithmOFF)) != ERROR_SUCCESS) {
-        srs_freep(msg);
+    if ((ret = this->jitter->correct(msg, 0, 0, SrsRtmpJitterAlgorithmOFF)) != ERROR_SUCCESS) {
+        delete msg;
         return ret;
     }
     
     if (SrsFlvCodec::audio_is_sequence_header(msg->payload, msg->size)) {
-        srs_freep(sh_audio);
+        delete sh_audio;
         sh_audio = msg->copy();
     }
     
-    if ((ret = queue->enqueue(msg)) != ERROR_SUCCESS) {
+    if ((ret = this->queue->enqueue(msg)) != ERROR_SUCCESS) {
         return ret;
     }
     
@@ -197,17 +188,17 @@ int SrsForwarder::on_video(SrsSharedPtrMessage* msg)
 {
     int ret = ERROR_SUCCESS;
     
-    if ((ret = jitter->correct(msg, 0, 0, SrsRtmpJitterAlgorithmOFF)) != ERROR_SUCCESS) {
-        srs_freep(msg);
+    if ((ret = this->jitter->correct(msg, 0, 0, SrsRtmpJitterAlgorithmOFF)) != ERROR_SUCCESS) {
+        delete msg;
         return ret;
     }
     
     if (SrsFlvCodec::video_is_sequence_header(msg->payload, msg->size)) {
-        srs_freep(sh_video);
+        delete sh_video;
         sh_video = msg->copy();
     }
     
-    if ((ret = queue->enqueue(msg)) != ERROR_SUCCESS) {
+    if ((ret = this->queue->enqueue(msg)) != ERROR_SUCCESS) {
         return ret;
     }
     
@@ -219,39 +210,39 @@ int SrsForwarder::cycle()
     int ret = ERROR_SUCCESS;
     
     std::string ep_server, ep_port;
-    if ((ret = connect_server(ep_server, ep_port)) != ERROR_SUCCESS) {
+    if ((ret = this->connect_server(ep_server, ep_port)) != ERROR_SUCCESS) {
         return ret;
     }
     srs_assert(client);
 
-    client->set_recv_timeout(SRS_CONSTS_RTMP_RECV_TIMEOUT_US);
-    client->set_send_timeout(SRS_CONSTS_RTMP_SEND_TIMEOUT_US);
+    this->client->set_recv_timeout(SRS_CONSTS_RTMP_RECV_TIMEOUT_US);
+    this->client->set_send_timeout(SRS_CONSTS_RTMP_SEND_TIMEOUT_US);
     
-    if ((ret = client->handshake()) != ERROR_SUCCESS) {
+    if ((ret = this->client->handshake()) != ERROR_SUCCESS) {
         srs_error("handshake with server failed. ret=%d", ret);
         return ret;
     }
-    if ((ret = connect_app(ep_server, ep_port)) != ERROR_SUCCESS) {
+    if ((ret = this->connect_app(ep_server, ep_port)) != ERROR_SUCCESS) {
         srs_error("connect with server failed. ret=%d", ret);
         return ret;
     }
-    if ((ret = client->create_stream(stream_id)) != ERROR_SUCCESS) {
+    if ((ret = this->client->create_stream(this->stream_id)) != ERROR_SUCCESS) {
         srs_error("connect with server failed, stream_id=%d. ret=%d", stream_id, ret);
         return ret;
     }
     
-    if ((ret = client->publish(_req->stream, stream_id)) != ERROR_SUCCESS) {
+    if ((ret = this->client->publish(this->_req->stream, this->stream_id)) != ERROR_SUCCESS) {
         srs_error("connect with server failed, stream_name=%s, stream_id=%d. ret=%d", 
             _req->stream.c_str(), stream_id, ret);
         return ret;
     }
     
-    if ((ret = source->on_forwarder_start(this)) != ERROR_SUCCESS) {
+    if ((ret = this->source->on_forwarder_start(this)) != ERROR_SUCCESS) {
         srs_error("callback the source to feed the sequence header failed. ret=%d", ret);
         return ret;
     }
     
-    if ((ret = forward()) != ERROR_SUCCESS) {
+    if ((ret = this->forward()) != ERROR_SUCCESS) {
         return ret;
     }
     
@@ -263,7 +254,7 @@ void SrsForwarder::close_underlayer_socket()
     srs_close_stfd(stfd);
 }
 
-void SrsForwarder::discovery_ep(string& server, string& port, string& tc_url)
+void SrsForwarder::discovery_ep(std::string &server, std::string &port, std::string &tc_url)
 {
     SrsRequest* req = _req;
     
@@ -281,16 +272,16 @@ void SrsForwarder::discovery_ep(string& server, string& port, string& tc_url)
     tc_url = srs_generate_tc_url(server, req->vhost, req->app, port, req->param);
 }
 
-int SrsForwarder::connect_server(string& ep_server, string& ep_port)
+int SrsForwarder::connect_server(std::string &ep_server, std::string &ep_port)
 {
     int ret = ERROR_SUCCESS;
     
     // reopen
-    close_underlayer_socket();
+    this->close_underlayer_socket();
     
     // discovery the server port and tcUrl from req and ep_forward.
     std::string server, s_port, tc_url;
-    discovery_ep(server, s_port, tc_url);
+    this->discovery_ep(server, s_port, tc_url);
     int port = ::atoi(s_port.c_str());
     
     // output the connected server and port.
@@ -305,8 +296,8 @@ int SrsForwarder::connect_server(string& ep_server, string& ep_port)
         return ret;
     }
     
-    srs_freep(client);
-    srs_freep(io);
+    delete client;
+    delete io;
     
     srs_assert(stfd);
     io = new SrsStSocket(stfd);
@@ -321,7 +312,7 @@ int SrsForwarder::connect_server(string& ep_server, string& ep_port)
 }
 
 // TODO: FIXME: refine the connect_app.
-int SrsForwarder::connect_app(string ep_server, string ep_port)
+int SrsForwarder::connect_app(std::string ep_server, std::string ep_port)
 {
     int ret = ERROR_SUCCESS;
     
@@ -373,12 +364,12 @@ int SrsForwarder::connect_app(string ep_server, string ep_port)
     return ret;
 }
 
-#define SYS_MAX_FORWARD_SEND_MSGS 128
+
 int SrsForwarder::forward()
 {
     int ret = ERROR_SUCCESS;
     
-    client->set_recv_timeout(SRS_CONSTS_RTMP_PULSE_TIMEOUT_US);
+    this->client->set_recv_timeout(SRS_CONSTS_RTMP_PULSE_TIMEOUT_US);
     
     SrsPithyPrint pithy_print(SRS_CONSTS_STAGE_FORWARDER);
 
@@ -386,20 +377,20 @@ int SrsForwarder::forward()
     
     // update sequence header
     // TODO: FIXME: maybe need to zero the sequence header timestamp.
-    if (sh_video) {
+    if (this->sh_video) {
         if ((ret = client->send_and_free_message(sh_video->copy(), stream_id)) != ERROR_SUCCESS) {
             srs_error("forwarder send sh_video to server failed. ret=%d", ret);
             return ret;
         }
     }
-    if (sh_audio) {
+    if (this->sh_audio) {
         if ((ret = client->send_and_free_message(sh_audio->copy(), stream_id)) != ERROR_SUCCESS) {
             srs_error("forwarder send sh_audio to server failed. ret=%d", ret);
             return ret;
         }
     }
     
-    while (pthread->can_loop()) {
+    while (this->pthread->can_loop()) {
         // switch to other st-threads.
         st_usleep(0);
 
@@ -416,12 +407,12 @@ int SrsForwarder::forward()
                 return ret;
             }
             
-            srs_freep(msg);
+            delete msg;
         }
         
         // forward all messages.
         int count = 0;
-        if ((ret = queue->dump_packets(msgs.size, msgs.msgs, count)) != ERROR_SUCCESS) {
+        if ((ret = this->queue->dump_packets(msgs.size, msgs.msgs, count)) != ERROR_SUCCESS) {
             srs_error("get message to forward failed. ret=%d", ret);
             return ret;
         }

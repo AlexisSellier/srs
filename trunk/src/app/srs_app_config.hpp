@@ -24,15 +24,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef SRS_APP_CONFIG_HPP
 #define SRS_APP_CONFIG_HPP
 
-/*
-#include <srs_app_config.hpp>
-*/
-#include <srs_core.hpp>
-
 #include <vector>
 #include <string>
-
-#include <srs_app_reload.hpp>
+#include "srs_core.hpp"
+#include "srs_app_reload.hpp"
 
 ///////////////////////////////////////////////////////////
 // default consts values
